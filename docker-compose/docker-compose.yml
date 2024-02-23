@@ -1,0 +1,84 @@
+version: '3'
+services:
+  redis:
+    image: redis:latest
+    container_name: redis_contain
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - mynetwork
+  mysql:
+    image: mysql:latest
+    container_name: mysql_contain
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=mysqlpassword
+    volumes:
+      - .mysql/mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    networks:
+      - mynetwork
+  selly-authen:
+    build:
+      context: ./selly_authenticate_app
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+    container_name: selly_authen_contain
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mysql
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=mysqlpassword
+    networks:
+      - mynetwork
+  art-info-selly:
+    build: 
+      context: ./getArticleFromSelly/getArtFromSelly
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+    container_name: art-info-selly-container
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mysql
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=mysqlpassword
+      - AUTHEN_CURRENT_TOKEN_URL=http://selly-authen:8080/sellyAuthenticate/getCurrentToken
+      - AUTHEN_REFRESH_TOKEN_URL=http://selly-authen:8080/sellyAuthenticate/refreshToken
+    networks:
+      - mynetwork
+  shoppe-push-art:
+    build: 
+      context: ./uploadShopeeArt/uploadShoppeArt
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - art-info-selly
+      - selly-authen
+    container_name: upload-shopee-upload-art-container
+    restart: always
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mysql
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=mysqlpassword
+      - AUTHEN_CURRENT_TOKEN_URL=http://selly-authen:8080/sellyAuthenticate/getCurrentToken
+      - AUTHEN_REFRESH_TOKEN_URL=http://selly-authen:8080/sellyAuthenticate/refreshToken
+      - SELLY_GET_ARTICLE_URL=http://art-info-selly:8081/sellyArticle/getArtInfo
+    networks:
+      - mynetwork
+networks:
+  mynetwork:
+    driver: bridge
